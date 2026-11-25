@@ -1,0 +1,3 @@
+patient,sample_name,status,bam_file,reference
+Pt1,Pt1_Tumor,tumor,[path_to]/Pt1_Tumor_markdup_recal.cram,hg38
+Pt1,Pt1_Normal,normal,[path_to]/Pt1_Normal_markdup_recal.cram,hg38

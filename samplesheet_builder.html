@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bamrc Samplesheet Builder</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+    --border: #d9d9d4; --accent: #2f6db5; --accent-text: #ffffff;
+    --error: #b3261e; --error-bg: #fdecea; --warn: #8a5a00; --warn-bg: #fff4dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --panel: #1f1f1d; --text: #ececea; --muted: #a0a09a;
+      --border: #3a3a37; --accent: #6ea3e6; --accent-text: #0d1b2c;
+      --error: #f2b8b5; --error-bg: #3b1d1b; --warn: #f3d18a; --warn-bg: #3a2e12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1600px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .toolbar .spacer { flex: 1; }
+  button, label.btn {
+    font: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:hover, label.btn:hover { filter: brightness(0.96); }
+  button.icon { padding: 2px 8px; }
+  .settings { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px; margin-bottom: 12px;
+              background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  .settings label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .settings input[type=text] { width: 320px; max-width: 100%; }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; table-layout: fixed; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top;
+           overflow: hidden; }
+  th { font-weight: 600; font-size: 12px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis;
+       position: sticky; top: 0; background: var(--panel); user-select: none; }
+  th .grip { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize;
+             border-right: 2px solid transparent; }
+  th .grip:hover, th .grip.active { border-right-color: var(--accent); }
+  body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
+  button.icon:disabled { opacity: 0.35; cursor: default; }
+  .hint { color: var(--muted); font-size: 12px; }
+  th .req { color: var(--error); }
+  td.idx { color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 9px; }
+  input[type=text], select {
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; width: 100%;
+    padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg); color: var(--text);
+  }
+  input.invalid, select.invalid { border-color: var(--error); background: var(--error-bg); }
+  input.warn, select.warn { border-color: var(--warn); background: var(--warn-bg); }
+  td.actions { white-space: nowrap; }
+  .msgs { margin-top: 12px; font-size: 13px; }
+  .msgs div { padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; }
+  .msgs .e { background: var(--error-bg); color: var(--error); }
+  .msgs .w { background: var(--warn-bg); color: var(--warn); }
+  .msgs .ok { color: var(--muted); }
+  details { margin-top: 16px; }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+        padding: 12px; overflow-x: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>bamrc Samplesheet Builder</h1>
+  <p class="sub">Fill in one row per sample (tumor or normal), then download the CSV for <code>main.nf --samplesheet</code>. Samples with the same patient are merged into one VCF. reference is a genome version (e.g. hg38); leave it blank to use the pipeline default (hg38). The BAM/CRAM index (.bai/.crai) is found automatically next to bam_file. Everything stays in this browser and nothing is uploaded.<br>
+  To paste many cells at once, copy a block from Excel, Google Sheets or a CSV, click the cell where it should start, and press Ctrl+V. It fills right and down, adding rows as needed. If the first copied line is the header, columns are matched by name.</p>
+
+  <div class="settings">
+    <label>Base directory (optional, prefixed to relative bam_file paths on export)
+      <input type="text" id="baseDir" placeholder="/path/to/">
+    </label>
+  </div>
+
+  <div class="toolbar">
+    <button class="primary" id="addRow">+ Add row</button>
+    <button id="validate">Validate</button>
+    <label class="btn">Import CSV<input type="file" id="importFile" accept=".csv,text/csv" hidden></label>
+    <button id="clearAll">Clear all</button>
+    <button id="fitCols" title="Widen each column to fit its longest value">Fit columns to text</button>
+    <button id="resetCols">Reset widths</button>
+    <span class="hint">Drag a column header's right edge to resize it; double-click the edge to fit.</span>
+    <span class="spacer"></span>
+    <button id="copyCsv">Copy CSV</button>
+    <button class="primary" id="download">Download samplesheet.csv</button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="table">
+      <colgroup id="cols"></colgroup>
+      <thead><tr id="headRow"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <div class="msgs" id="msgs"></div>
+
+  <details>
+    <summary>Preview CSV</summary>
+    <pre id="preview"></pre>
+  </details>
+</main>
+
+<script>
+const COLS = [
+  { key: "patient",     label: "patient",     req: true,  cls: "short" },
+  { key: "sample_name", label: "sample_name", req: true,  cls: "short" },
+  { key: "status",      label: "status",      req: true,  cls: "short", select: ["", "tumor", "normal"],
+    aliases: { tumor: ["tumor", "tumour", "t"], normal: ["normal", "n"] } },
+  { key: "bam_file",    label: "bam_file",    req: true,  cls: "path", path: true, prefix: true, ext: [".bam", ".cram"] },
+  { key: "reference",   label: "reference",   req: false, cls: "short", genomes: ["hg38", "GRCh38"] },
+];
+const STORE_KEY = "bamrc_samplesheet_builder_v1";
+const IDX_W = 40, ACT_W = 150, MIN_W = 60, MAX_W = 1200;
+const defaultWidth = c => c.select ? 100 : c.path ? 420 : 170;
+let rows = [];
+let widths = {};   // column key -> px
+
+const $ = id => document.getElementById(id);
+const store = {
+  load() { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; } },
+  save(v) { try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch {} },
+};
+
+function emptyRow() { return Object.fromEntries(COLS.map(c => [c.key, ""])); }
+function cloneRow(r) { return JSON.parse(JSON.stringify(r)); }
+
+function persist() {
+  store.save({ rows, widths, baseDir: $("baseDir").value });
+  renderPreview();
+}
+
+// ---------- column widths ----------
+function colWidth(c) { return widths[c.key] || defaultWidth(c); }
+
+function applyWidths() {
+  const cg = $("cols");
+  cg.innerHTML = `<col style="width:${IDX_W}px">` +
+    COLS.map(c => `<col style="width:${colWidth(c)}px">`).join("") + `<col style="width:${ACT_W}px">`;
+  $("table").style.width = (IDX_W + ACT_W + COLS.reduce((s, c) => s + colWidth(c), 0)) + "px";
+}
+
+const measureCtx = document.createElement("canvas").getContext("2d");
+function fitWidth(c) {
+  measureCtx.font = "13px ui-monospace, SFMono-Regular, Menlo, monospace";
+  let w = measureCtx.measureText(c.label + "  *").width;
+  rows.forEach(r => { const v = c.prefix ? resolvePath(r[c.key]) || r[c.key] : r[c.key]; w = Math.max(w, measureCtx.measureText(v || "").width); });
+  return Math.min(MAX_W, Math.max(c.select ? 90 : MIN_W, Math.ceil(w) + 34));  // padding + input borders
+}
+
+function renderHead() {
+  $("headRow").innerHTML = "<th>#</th>" +
+    COLS.map(c => `<th title="${c.label}">${c.label}${c.req ? ' <span class="req">*</span>' : ""}<span class="grip" data-col="${c.key}"></span></th>`).join("") + "<th></th>";
+  applyWidths();
+}
+
+$("headRow").addEventListener("mousedown", e => {
+  const key = e.target.dataset.col; if (!key) return;
+  e.preventDefault();
+  const c = COLS.find(x => x.key === key), startX = e.clientX, startW = colWidth(c);
+  e.target.classList.add("active"); document.body.classList.add("resizing");
+  const move = ev => { widths[key] = Math.min(MAX_W, Math.max(MIN_W, startW + ev.clientX - startX)); applyWidths(); };
+  const up = () => {
+    e.target.classList.remove("active"); document.body.classList.remove("resizing");
+    window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); persist();
+  };
+  window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+});
+$("headRow").addEventListener("dblclick", e => {
+  const key = e.target.dataset.col; if (!key) return;
+  widths[key] = fitWidth(COLS.find(x => x.key === key)); applyWidths(); persist();
+});
+$("fitCols").onclick = () => { COLS.forEach(c => widths[c.key] = fitWidth(c)); applyWidths(); persist(); };
+$("resetCols").onclick = () => { widths = {}; applyWidths(); persist(); };
+
+function render() {
+  const tb = $("body");
+  tb.innerHTML = "";
+  rows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="idx">${i + 1}</td>`;
+    COLS.forEach(c => {
+      const td = document.createElement("td");
+      let el;
+      if (c.select) {
+        el = document.createElement("select");
+        c.select.forEach(o => { const op = document.createElement("option"); op.value = o; op.textContent = o || "—"; el.appendChild(op); });
+      } else {
+        el = document.createElement("input");
+        el.type = "text";
+        el.className = c.cls;
+        el.spellcheck = false;
+        if (c.path) el.placeholder = "/path/to/file";
+      }
+      el.value = r[c.key];
+      el.title = r[c.key];   // hover shows the full value even when the column is narrow
+      el.dataset.row = i; el.dataset.key = c.key;
+      el.addEventListener("input", onEdit);
+      el.addEventListener("change", onEdit);
+      td.appendChild(el);
+      tr.appendChild(td);
+    });
+    const act = document.createElement("td");
+    act.className = "actions";
+    act.innerHTML = `<button class="icon" title="Move up" data-up="${i}" ${i === 0 ? "disabled" : ""}>↑</button>
+                     <button class="icon" title="Move down" data-down="${i}" ${i === rows.length - 1 ? "disabled" : ""}>↓</button>
+                     <button class="icon" title="Duplicate row" data-dup="${i}">⧉</button>
+                     <button class="icon" title="Delete row" data-del="${i}">✕</button>`;
+    tr.appendChild(act);
+    tb.appendChild(tr);
+  });
+  persist();
+}
+
+function onEdit(e) {
+  const i = +e.target.dataset.row, k = e.target.dataset.key;
+  const r = rows[i];
+  r[k] = e.target.value.trim();
+  e.target.title = r[k];
+  e.target.classList.remove("invalid", "warn");
+  persist();
+}
+
+$("body").addEventListener("click", e => {
+  const d = e.target.dataset;
+  if (d.del !== undefined) { rows.splice(+d.del, 1); if (!rows.length) rows.push(emptyRow()); render(); }
+  if (d.dup !== undefined) { rows.splice(+d.dup + 1, 0, cloneRow(rows[+d.dup])); render(); }
+  if (d.up !== undefined && +d.up > 0) { moveRow(+d.up, -1); }
+  if (d.down !== undefined && +d.down < rows.length - 1) { moveRow(+d.down, 1); }
+});
+
+function moveRow(i, dir) {
+  const j = i + dir;
+  [rows[i], rows[j]] = [rows[j], rows[i]];
+  render();
+  $("msgs").innerHTML = "";   // row numbers in old validation messages are now stale
+  document.querySelector(`[data-${dir < 0 ? "up" : "down"}="${j}"]:not(:disabled)`)?.focus();
+}
+
+// ---------- multi-cell paste (from Excel / Google Sheets / CSV) ----------
+let undoSnapshot = null;
+
+function normalizeSelect(c, v) {
+  const s = v.trim().toLowerCase();
+  if (s === "") return "";
+  for (const [opt, names] of Object.entries(c.aliases || {})) if (names.includes(s)) return opt;
+  return c.select.includes(s) ? s : null;   // null = not a valid option
+}
+
+function parseClipboard(text) {
+  text = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+  if (text.includes("\t")) return text.split("\n").map(l => l.split("\t"));
+  if (text.includes("\n")) return text.includes(",") ? parseCsv(text + "\n") : text.split("\n").map(l => [l]);
+  return null;   // single value: let the browser paste normally
+}
+
+$("body").addEventListener("paste", e => {
+  const t = e.target;
+  if (t.dataset.row === undefined) return;
+  const grid = parseClipboard((e.clipboardData || window.clipboardData).getData("text"));
+  if (!grid) return;
+  e.preventDefault();
+
+  // If the first pasted line is a header row (all names match columns), map by name; otherwise by position.
+  const first = grid[0].map(h => h.trim());
+  const byHeader = first.length > 1 && first.every(h => COLS.some(c => c.key === h));
+  const data = byHeader ? grid.slice(1) : grid;
+  const startRow = +t.dataset.row;
+  const startCol = COLS.findIndex(c => c.key === t.dataset.key);
+  const keys = byHeader ? first : grid[0].map((_, j) => COLS[startCol + j]?.key);
+  const dropped = keys.filter(k => !k).length;
+
+  undoSnapshot = { rows: rows.map(cloneRow) };
+  const bad = [];
+  data.forEach((line, i) => {
+    const ri = startRow + i;
+    while (rows.length <= ri) rows.push(emptyRow());
+    const r = rows[ri];
+    keys.forEach((k, j) => {
+      if (!k || j >= line.length) return;
+      const c = COLS.find(x => x.key === k);
+      let v = (line[j] ?? "").trim();
+      if (c.select) {
+        const nv = normalizeSelect(c, v);
+        if (nv === null) { bad.push(`row ${ri + 1} ${k}="${v}"`); return; }
+        v = nv;
+      }
+      r[k] = v;
+    });
+  });
+  render();
+
+  const nCols = keys.filter(Boolean).length;
+  let msg = `<div class="ok">Pasted ${data.length} row(s) × ${nCols} column(s) starting at row ${startRow + 1}` +
+            (byHeader ? " (columns matched by header names)" : `, column ${COLS[startCol].key}`) +
+            `. <button id="undoPaste">Undo paste</button></div>`;
+  if (dropped) msg += `<div class="w">${dropped} pasted column(s) ran past the last column (${COLS[COLS.length - 1].key}) and were ignored.</div>`;
+  if (bad.length) msg += `<div class="w">Not a valid status value (use tumor/normal), left unchanged: ${bad.join(", ")}</div>`;
+  $("msgs").innerHTML = msg;
+  $("undoPaste").onclick = () => {
+    if (!undoSnapshot) return;
+    rows = undoSnapshot.rows; undoSnapshot = null; render();
+    $("msgs").innerHTML = `<div class="ok">Paste undone.</div>`;
+  };
+});
+
+function resolvePath(p) {
+  const base = $("baseDir").value.trim();
+  if (!p || !base || p.startsWith("/")) return p;
+  return base.replace(/\/+$/, "") + "/" + p;
+}
+
+function csvEscape(v) { return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }
+
+function toCsv() {
+  const lines = [COLS.map(c => c.key).join(",")];
+  rows.filter(r => COLS.some(c => r[c.key])).forEach(r => {
+    lines.push(COLS.map(c => csvEscape(c.prefix ? resolvePath(r[c.key]) : r[c.key])).join(","));
+  });
+  return lines.join("\n") + "\n";
+}
+
+function renderPreview() { $("preview").textContent = toCsv(); }
+
+function validate() {
+  const errs = [], warns = [];
+  document.querySelectorAll("#body input, #body select").forEach(el => el.classList.remove("invalid", "warn"));
+  const mark = (i, k, cls) => document.querySelector(`[data-row="${i}"][data-key="${k}"]`)?.classList.add(cls);
+  const seen = new Map(), seenBam = new Map(), patients = new Map();
+  rows.forEach((r, i) => {
+    if (!COLS.some(c => r[c.key])) return;
+    const n = i + 1;
+    COLS.forEach(c => {
+      const v = r[c.key];
+      if (c.req && !v) { errs.push(`Row ${n}: ${c.key} is required`); mark(i, c.key, "invalid"); }
+      if (v && /\s/.test(v)) { errs.push(`Row ${n}: ${c.key} contains whitespace`); mark(i, c.key, "invalid"); }
+      if (v && c.select && !c.select.includes(v)) { errs.push(`Row ${n}: ${c.key} "${v}" must be one of ${c.select.filter(Boolean).join(" / ")}`); mark(i, c.key, "invalid"); }
+      if (v && c.ext && !c.ext.some(x => v.endsWith(x))) {
+        warns.push(`Row ${n}: ${c.key} doesn't end in ${c.ext.join(" / ")}`); mark(i, c.key, "warn");
+      }
+      if (v && c.prefix && !v.startsWith("/") && !$("baseDir").value.trim()) {
+        warns.push(`Row ${n}: ${c.key} is a relative path and no base directory is set`); mark(i, c.key, "warn");
+      }
+      if (v && c.genomes && !c.genomes.some(g => g.toLowerCase() === v.toLowerCase())) {
+        errs.push(`Row ${n}: ${c.key} "${v}" is not a known genome version (${c.genomes.join(" / ")}, or blank for hg38)`); mark(i, c.key, "invalid");
+      }
+    });
+    // sample_name names output files and VCF columns, so it must be unique
+    if (r.sample_name) {
+      if (seen.has(r.sample_name)) { errs.push(`Row ${n}: sample_name duplicates row ${seen.get(r.sample_name)}`); mark(i, "sample_name", "invalid"); }
+      else seen.set(r.sample_name, n);
+    }
+    if (r.bam_file) {
+      if (seenBam.has(r.bam_file)) { warns.push(`Row ${n}: bam_file is the same as row ${seenBam.get(r.bam_file)}`); mark(i, "bam_file", "warn"); }
+      else seenBam.set(r.bam_file, n);
+    }
+    if (r.patient) {
+      const p = patients.get(r.patient) || { rows: [], refs: new Set(), status: new Set() };
+      p.rows.push(i); { const g = (r.reference || "hg38").toLowerCase(); p.refs.add(({ grch38: "hg38" })[g] || g); }; if (r.status) p.status.add(r.status);
+      patients.set(r.patient, p);
+    }
+  });
+  // the pipeline merges a patient's samples into one VCF, so they must share a reference
+  patients.forEach((p, id) => {
+    if (p.refs.size > 1) {
+      errs.push(`Patient ${id}: samples use different references (${[...p.refs].join(", ")})`);
+      p.rows.forEach(i => mark(i, "reference", "invalid"));
+    }
+    if (!p.status.has("tumor")) warns.push(`Patient ${id}: no tumor sample`);
+  });
+  const box = $("msgs");
+  box.innerHTML = "";
+  errs.forEach(m => box.insertAdjacentHTML("beforeend", `<div class="e">${m}</div>`));
+  warns.forEach(m => box.insertAdjacentHTML("beforeend", `<div class="w">${m}</div>`));
+  if (!errs.length && !warns.length) box.innerHTML = `<div class="ok">No problems found. Note that the browser can't check whether files exist on the cluster.</div>`;
+  return errs.length === 0;
+}
+
+function parseCsv(text) {
+  const out = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(f); f = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(f); out.push(row); row = []; f = ""; }
+    else f += ch;
+  }
+  if (f || row.length) { row.push(f); out.push(row); }
+  return out.filter(r => r.some(x => x.trim()));
+}
+
+$("importFile").addEventListener("change", async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const data = parseCsv(await file.text());
+  const header = data.shift().map(h => h.trim());
+  const missing = COLS.map(c => c.key).filter(k => !header.includes(k));
+  rows = data.map(d => {
+    const r = Object.fromEntries(COLS.map(c => [c.key, (d[header.indexOf(c.key)] ?? "").trim()]));
+    COLS.filter(c => c.select).forEach(c => { const v = normalizeSelect(c, r[c.key]); if (v !== null) r[c.key] = v; });
+    return r;
+  });
+  if (!rows.length) rows.push(emptyRow());
+  render();
+  $("msgs").innerHTML = missing.length ? `<div class="w">Imported ${rows.length} rows. Columns not in file: ${missing.join(", ")}</div>`
+                                       : `<div class="ok">Imported ${rows.length} rows.</div>`;
+  e.target.value = "";
+});
+
+$("addRow").onclick = () => {
+  const last = rows[rows.length - 1];
+  rows.push({ ...emptyRow(), patient: last?.patient || "", reference: last?.reference || "" });
+  render();
+};
+$("validate").onclick = validate;
+$("clearAll").onclick = () => { if (confirm("Clear all rows?")) { rows = [emptyRow()]; render(); $("msgs").innerHTML = ""; } };
+$("download").onclick = () => {
+  if (!validate() && !confirm("There are errors. Download anyway?")) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([toCsv()], { type: "text/csv" }));
+  a.download = "samplesheet.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$("copyCsv").onclick = async () => {
+  try { await navigator.clipboard.writeText(toCsv()); $("msgs").innerHTML = `<div class="ok">CSV copied to clipboard.</div>`; }
+  catch { $("msgs").innerHTML = `<div class="w">Clipboard unavailable. Use the preview below instead.</div>`; }
+};
+$("baseDir").addEventListener("input", persist);
+
+// init
+const saved = store.load();
+if (saved) {
+  rows = saved.rows?.length ? saved.rows : [emptyRow()];
+  widths = saved.widths || {};
+  $("baseDir").value = saved.baseDir || "";
+} else rows = [emptyRow()];
+renderHead();
+render();
+</script>
+</body>
+</html>
